@@ -1,56 +1,64 @@
-#!/usr/bin/env ruby
+#!/usr/bin/env node
 
-def ensure_db_connectivity(user = ENV.fetch("PG_USER"), pass = ENV.fetch("PG_PASS"), host = ENV.fetch("PG_HOST"))
-  cmd = %{psql -d 'postgresql://#{user}:#{pass}@#{host}' -c 'select now()' > /dev/null 2>&1}
-  res = system(cmd)
-  if res
-    puts "Successfully pinged the database!"
-  else
-    puts "Can't connect to the database using the credenials provided in the .env file!"
-    exit(1)
-  end
-end
+const { execSync } = require("child_process");
 
-def install_script_deps
-  system("gem install bundler")
-  system("gem install dotenv")
-end
+function execCommand(cmd, successMessage, errorMessage) {
+    execSync(cmd, (err, stdout, stderr) => {
+        if (err) {
+            console.error(err);
+            console.error(errorMessage);
+            process.exit(1);
+        }
 
-def load_env
-  require "dotenv"
-  Dir.chdir "/home/ubuntu/app"
-  Dotenv.load!
-  Dotenv.require_keys("TOOLJET_HOST", "LOCKBOX_MASTER_KEY", "SECRET_KEY_BASE", "PG_DB", "PG_USER", "PG_HOST", "PG_PASS")
-end
+        console.log(stdout);
+        console.error(stderr);
 
-def install_be_app_deps
-  system("RAILS_ENV=production bundle install")
-  system("RAILS_ENV=production bundle exec dotenv rails db:create")
-  system("RAILS_ENV=production bundle exec dotenv rails db:migrate")
-  system("RAILS_ENV=production bundle exec dotenv rails db:seed")
-end
+        console.log(successMessage);
+    });
+}
 
+function ensureDbConnectivity() {
+    const cmd =`psql -d 'postgresql://${process.env.PG_HOST}:` +
+          `${process.env.PG_PASS}@${process.env.PG_HOST}' -c 'select now()'`
+    const successMessage = "Successfully pinged the database!";
+    const errorMessage = "Can't connect to the database using the credenials provided in the .env file!";
 
-def build_fe
-  backend_url = "#{ENV.fetch("TOOLJET_HOST")}/_backend_"
-  front_end_working_dir = "/home/ubuntu/app/frontend"
-  Dir.chdir front_end_working_dir
-  system("npm install --only=production")
-  system("NODE_ENV=production TOOLJET_SERVER_URL=#{backend_url} npm run-script build")
-end
+    execCommand(cmd, successMessage, errorMessage)
+}
 
-def start_services
-  system("sudo systemctl start openresty")
-  system("bundle binstubs puma && rbenv rehash && sudo systemctl start puma")
-end
+function buildApp(){
+    const serverURL = `${process.env.TOOLJET_HOST || ''}/_backend_`;
+    const cmd =
+          'npm --prefix frontend install && ' +
+          'NODE_ENV=production npm --prefix frontend run build && ' +
+          'npm --prefix server install && ' +
+          `NODE_ENV=production TOOLJET_SERVER_URL=${serverURL}/_backend_ ` +
+          'npm --prefix server run build'
+    const successMessage = "Successfully built application!";
+    const errorMessage = "Could not build the application!";
 
+    execCommand(cmd, successMessage, errorMessage)
+}
 
-install_script_deps
-load_env
-ensure_db_connectivity
-install_be_app_deps
-build_fe
-start_services
+function startReverseProxy(){
+    const cmd = "sudo systemctl start openresty"
+    const successMessage = "Successfully started reverse proxy!";
+    const errorMessage = "Failed to start reverse proxy!";
 
+    execCommand(cmd, successMessage, errorMessage)
+}
 
-puts "The app will be served at #{ENV.fetch("TOOLJET_HOST")}"
+function startAppServer(){
+    const cmd = "sudo systemctl start nest"
+    const successMessage = "Successfully started App server!";
+    const errorMessage = "Failed to start App server!";
+
+    execCommand(cmd, successMessage, errorMessage)
+}
+
+ensureDbConnectivity()
+buildApp()
+startReverseProxy()
+startAppServer()
+
+console.log(`The app will be served at ${process.env.TOOLJET_HOST}`)
